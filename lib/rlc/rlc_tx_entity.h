@@ -70,6 +70,7 @@ protected:
     if (metrics_coll.get_metrics_period().count()) {
       high_metrics_timer.set(std::chrono::milliseconds(metrics_coll.get_metrics_period().count()),
                              [this](timer_id_t tid) {
+                               metrics_high.metrics_set_sdu_queue_bytes(get_buffer_state().pending_bytes);
                                metrics_coll.push_tx_high_metrics(metrics_high.get_and_reset_metrics());
                                high_metrics_timer.run();
                              });

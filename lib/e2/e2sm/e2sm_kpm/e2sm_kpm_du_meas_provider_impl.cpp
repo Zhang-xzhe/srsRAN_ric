@@ -106,6 +106,11 @@ e2sm_kpm_du_meas_provider_impl::e2sm_kpm_du_meas_provider_impl(srs_du::f1ap_ue_i
                             e2sm_kpm_supported_metric_t{
                                 NO_LABEL, E2_NODE_LEVEL, true, &e2sm_kpm_du_meas_provider_impl::get_prach_cell_count});
 
+  supported_metrics.emplace(
+      "DRB.RlcSduQueueDl",
+      e2sm_kpm_supported_metric_t{
+          NO_LABEL, ALL_LEVELS, true, &e2sm_kpm_du_meas_provider_impl::get_drb_rlc_sdu_queue_dl});
+
   // Check if the supported metrics are matching e2sm_kpm metrics definitions.
   check_e2sm_kpm_metrics_definitions(get_e2sm_kpm_28_552_metrics());
   check_e2sm_kpm_metrics_definitions(get_e2sm_kpm_oran_metrics());
@@ -1175,6 +1180,56 @@ bool e2sm_kpm_du_meas_provider_impl::get_drb_ul_rlc_sdu_latency(const asn1::e2sm
         items.push_back(meas_record_item);
         meas_collected = true;
       }
+    }
+  }
+  return meas_collected;
+}
+
+bool e2sm_kpm_du_meas_provider_impl::get_drb_rlc_sdu_queue_dl(
+    const asn1::e2sm::label_info_list_l          label_info_list,
+    const std::vector<asn1::e2sm::ue_id_c>&      ues,
+    const std::optional<asn1::e2sm::cgi_c>       cell_global_id,
+    std::vector<asn1::e2sm::meas_record_item_c>& items)
+{
+  bool meas_collected = false;
+  if (ue_aggr_rlc_metrics.empty()) {
+    return handle_no_meas_data_available(ues, items, asn1::e2sm::meas_record_item_c::types::options::integer);
+  }
+
+  if ((label_info_list.size() > 1 or
+       (label_info_list.size() == 1 and not label_info_list[0].meas_label.no_label_present))) {
+    logger.debug("Metric: DRB.RlcSduQueueDl supports only NO_LABEL label.");
+    return meas_collected;
+  }
+
+  if (ues.empty()) {
+    // E2 node level: sum of queue bytes across all UEs (most-recent snapshot per UE).
+    meas_record_item_c meas_record_item;
+    size_t             total_queue_bytes = 0;
+    for (auto& rlc_metric : ue_aggr_rlc_metrics) {
+      if (!rlc_metric.second.empty()) {
+        total_queue_bytes += rlc_metric.second.back().tx.tx_high.sdu_queue_bytes;
+      }
+    }
+    meas_record_item.set_integer() = static_cast<int64_t>(total_queue_bytes);
+    items.push_back(meas_record_item);
+    meas_collected = true;
+  } else {
+    // UE level: queue bytes for each requested UE (most-recent snapshot).
+    for (auto& ue : ues) {
+      meas_record_item_c  meas_record_item;
+      gnb_cu_ue_f1ap_id_t gnb_cu_ue_f1ap_id = int_to_gnb_cu_ue_f1ap_id(ue.gnb_du_ue_id().gnb_cu_ue_f1ap_id);
+      uint32_t            ue_idx            = f1ap_ue_id_provider.get_ue_index(gnb_cu_ue_f1ap_id);
+      if (ue_aggr_rlc_metrics.count(ue_idx) == 0 || ue_aggr_rlc_metrics[ue_idx].empty()) {
+        meas_record_item.set_no_value();
+        items.push_back(meas_record_item);
+        meas_collected = true;
+        continue;
+      }
+      meas_record_item.set_integer() =
+          static_cast<int64_t>(ue_aggr_rlc_metrics[ue_idx].back().tx.tx_high.sdu_queue_bytes);
+      items.push_back(meas_record_item);
+      meas_collected = true;
     }
   }
   return meas_collected;

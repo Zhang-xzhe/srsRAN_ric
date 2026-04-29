@@ -71,6 +71,14 @@ public:
     metrics_hi.num_discard_failures += num_discard_failures;
   }
 
+  void metrics_set_sdu_queue_bytes(uint32_t sdu_queue_bytes)
+  {
+    if (not enabled) {
+      return;
+    }
+    metrics_hi.sdu_queue_bytes = sdu_queue_bytes;
+  }
+
   // Metrics getters and setters
   rlc_tx_metrics_higher get_hi_metrics()
   {
