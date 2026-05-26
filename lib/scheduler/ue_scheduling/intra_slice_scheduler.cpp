@@ -458,6 +458,12 @@ unsigned intra_slice_scheduler::schedule_dl_newtx_candidates(dl_ran_slice_candid
     return 0;
   }
 
+  logger.debug("slot={}: schedule_dl_newtx_candidates: {} candidates prepared, rbs_to_alloc={}, max_rbs_per_grant={}",
+               pdcch_slot,
+               newtx_candidates.size(),
+               rbs_to_alloc,
+               max_rbs_per_grant);
+
   // Stage 1: Pre-select UEs with the highest priority and reserve control-plane space for their DL grants.
   unsigned rb_count                   = 0;
   bool     pucch_grant_limit_exceeded = false;
@@ -479,8 +485,35 @@ unsigned intra_slice_scheduler::schedule_dl_newtx_candidates(dl_ran_slice_candid
     if (trace_mgr != nullptr && trace_mgr->is_enabled()) {
       auto trace_sample = trace_mgr->get_trace_sample(pdcch_slot);
       if (trace_sample.has_value()) {
+        logger.debug("ue={} rnti={} slot={}: [trace] override pending_bytes {} -> tbs {}",
+                     fmt::underlying(ue_candidate.ue_cc->ue_index),
+                     ue_candidate.ue_cc->rnti(),
+                     pdcch_slot,
+                     effective_pending_bytes,
+                     trace_sample->tbs);
         effective_pending_bytes = trace_sample->tbs;
+      } else {
+        logger.warning("ue={} rnti={} slot={}: [trace] is_enabled=true but get_trace_sample() returned nullopt, "
+                       "using original pending_bytes={}",
+                       fmt::underlying(ue_candidate.ue_cc->ue_index),
+                       ue_candidate.ue_cc->rnti(),
+                       pdcch_slot,
+                       effective_pending_bytes);
       }
+    } else {
+      logger.debug("ue={} rnti={} slot={}: [trace] not active (mgr_null={}, enabled={}), pending_bytes={}",
+                   fmt::underlying(ue_candidate.ue_cc->ue_index),
+                   ue_candidate.ue_cc->rnti(),
+                   pdcch_slot,
+                   trace_mgr == nullptr ? "yes" : "no",
+                   (trace_mgr != nullptr && trace_mgr->is_enabled()) ? "yes" : "no",
+                   effective_pending_bytes);
+    }
+    if (effective_pending_bytes == 0) {
+      logger.warning("ue={} rnti={} slot={}: effective_pending_bytes=0, DL grant allocation will be skipped",
+                     fmt::underlying(ue_candidate.ue_cc->ue_index),
+                     ue_candidate.ue_cc->rnti(),
+                     pdcch_slot);
     }
     auto result =
         ue_alloc.allocate_dl_grant(ue_newtx_dl_grant_request{*ue_candidate.ue, pdsch_slot, effective_pending_bytes});
@@ -488,6 +521,11 @@ unsigned intra_slice_scheduler::schedule_dl_newtx_candidates(dl_ran_slice_candid
     if (result.has_value()) {
       // Allocation was successful. Move grant builder to list of pending newTx grants.
       auto& grant_builder = result.value();
+      logger.debug("ue={} rnti={} slot={}: DL grant allocated, expected_nof_rbs={}",
+                   fmt::underlying(ue_candidate.ue_cc->ue_index),
+                   ue_candidate.ue_cc->rnti(),
+                   pdcch_slot,
+                   grant_builder.context().expected_nof_rbs);
       rb_count += std::min(grant_builder.context().expected_nof_rbs, max_rbs_per_grant);
       pending_dl_newtxs.push_back(std::move(grant_builder));
       if (rb_count >= rbs_to_alloc) {
@@ -500,10 +538,25 @@ unsigned intra_slice_scheduler::schedule_dl_newtx_candidates(dl_ran_slice_candid
       }
     } else if (result.error() == dl_alloc_failure_cause::skip_slot) {
       // Received signal to stop allocations in the slot. Move to stage 2.
+      logger.debug("ue={} rnti={} slot={}: allocate_dl_grant failed: skip_slot",
+                   fmt::underlying(ue_candidate.ue_cc->ue_index),
+                   ue_candidate.ue_cc->rnti(),
+                   pdcch_slot);
       break;
     } else if (result.error() == dl_alloc_failure_cause::uci_alloc_failed) {
       // The scheduler likely ran out of PUCCH resources. Prioritize UEs which have a UCI already pending.
+      logger.debug("ue={} rnti={} slot={}: allocate_dl_grant failed: uci_alloc_failed (PUCCH resources exhausted)",
+                   fmt::underlying(ue_candidate.ue_cc->ue_index),
+                   ue_candidate.ue_cc->rnti(),
+                   pdcch_slot);
       pucch_grant_limit_exceeded = true;
+    } else {
+      logger.warning("ue={} rnti={} slot={}: allocate_dl_grant failed: other (pdcch_alloc_failed or unknown), "
+                     "effective_pending_bytes={}",
+                     fmt::underlying(ue_candidate.ue_cc->ue_index),
+                     ue_candidate.ue_cc->rnti(),
+                     pdcch_slot,
+                     effective_pending_bytes);
     }
 
     dl_attempts_count++;
