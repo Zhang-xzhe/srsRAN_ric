@@ -124,8 +124,7 @@ dl_scheduler_trace_manager::get_trace_sample(slot_point slot) const
   }
 
   // 达到 start_slot_ 之前不应用 trace（保护 UE 接入）
-  if (slot.to_uint() < start_slot_ && !already_access) {
-    already_access = true;
+  if (slot.to_uint() < start_slot_) {
     return std::nullopt;
   }
 
