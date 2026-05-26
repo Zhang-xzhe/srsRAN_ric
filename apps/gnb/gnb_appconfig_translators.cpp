@@ -22,6 +22,7 @@
 
 #include "gnb_appconfig_translators.h"
 #include "apps/services/worker_manager/worker_manager_config.h"
+#include "apps/units/flexible_o_du/o_du_high/du_high/du_high_config.h"
 #include "gnb_appconfig.h"
 
 using namespace srsran;
@@ -37,4 +38,17 @@ void srsran::fill_gnb_worker_manager_config(worker_manager_config& config, const
   config.main_pool_backoff_period =
       std::chrono::microseconds{app_cfg.expert_execution_cfg.threads.main_pool.backoff_period};
   config.main_pool_affinity_cfg = app_cfg.expert_execution_cfg.affinities.main_pool_cpu_cfg;
+}
+
+void srsran::fill_du_scheduler_config_from_gnb_config(du_high_unit_config& du_cfg, const gnb_appconfig& gnb_cfg)
+{
+  if (gnb_cfg.expert_execution_cfg.scheduler.dl_scheduler_trace_file.empty()) {
+    return;
+  }
+  for (auto& cell_cfg : du_cfg.cells_cfg) {
+    cell_cfg.cell.sched_expert_cfg.dl_scheduler_trace_file =
+        gnb_cfg.expert_execution_cfg.scheduler.dl_scheduler_trace_file;
+    cell_cfg.cell.sched_expert_cfg.dl_trace_start_slot =
+        gnb_cfg.expert_execution_cfg.scheduler.dl_trace_start_slot;
+  }
 }

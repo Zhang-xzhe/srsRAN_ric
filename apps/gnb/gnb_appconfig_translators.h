@@ -26,8 +26,12 @@ namespace srsran {
 
 struct gnb_appconfig;
 struct worker_manager_config;
+struct du_high_unit_config;
 
 /// Fills the gNB worker manager parameters of the given worker manager configuration.
 void fill_gnb_worker_manager_config(worker_manager_config& config, const gnb_appconfig& unit_cfg);
+
+/// Fills DU scheduler config from the gNB expert_execution.scheduler settings.
+void fill_du_scheduler_config_from_gnb_config(du_high_unit_config& du_cfg, const gnb_appconfig& gnb_cfg);
 
 } // namespace srsran

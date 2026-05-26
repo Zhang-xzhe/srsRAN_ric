@@ -23,6 +23,7 @@
 #pragma once
 
 #include "os_sched_affinity_manager.h"
+#include <string>
 
 namespace srsran {
 
@@ -48,12 +49,22 @@ struct expert_threads_appconfig {
   main_thread_pool_appconfig main_pool;
 };
 
+/// Scheduler configuration for expert execution.
+struct scheduler_appconfig {
+  /// Path to DL scheduler trace file (optional).
+  std::string dl_scheduler_trace_file;
+  /// Minimum slot number before trace-based scheduling takes effect (default: 1000).
+  unsigned dl_trace_start_slot = 1000;
+};
+
 /// Expert configuration of the application.
 struct expert_execution_appconfig {
   /// Application CPU affinities.
   cpu_affinities_appconfig affinities;
   /// Expert thread configuration of the application.
   expert_threads_appconfig threads;
+  /// Scheduler configuration.
+  scheduler_appconfig scheduler;
 };
 
 } // namespace srsran

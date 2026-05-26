@@ -249,6 +249,9 @@ int main(int argc, char** argv)
 
     cu_cp_unit_config& cu_cp_cfg = o_cu_cp_app_unit->get_o_cu_cp_unit_config().cucp_cfg;
 
+    // Propagate expert_execution.scheduler trace config to DU cells (if set).
+    fill_du_scheduler_config_from_gnb_config(o_du_app_unit->get_o_du_high_unit_config().du_high_cfg.config, gnb_cfg);
+
     autoderive_slicing_args(o_du_app_unit->get_o_du_high_unit_config().du_high_cfg.config, cu_cp_cfg);
     o_du_app_unit->on_configuration_parameters_autoderivation(app);
 

@@ -62,6 +62,14 @@ static void fill_gnb_appconfig_expert_execution_section(YAML::Node node, const e
     main_pool_node["task_queue_size"] = config.threads.main_pool.task_queue_size;
     main_pool_node["backoff_period"]  = config.threads.main_pool.backoff_period;
   }
+
+  {
+    YAML::Node scheduler_node              = node["scheduler"];
+    scheduler_node["dl_trace_start_slot"]  = config.scheduler.dl_trace_start_slot;
+    if (!config.scheduler.dl_scheduler_trace_file.empty()) {
+      scheduler_node["dl_scheduler_trace_file"] = config.scheduler.dl_scheduler_trace_file;
+    }
+  }
 }
 
 static void fill_gnb_appconfig_buffer_pool_section(YAML::Node node, const buffer_pool_appconfig& config)

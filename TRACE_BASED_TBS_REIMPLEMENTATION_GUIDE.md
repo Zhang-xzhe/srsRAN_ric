@@ -226,67 +226,121 @@ struct scheduler_expert_config {
 
 ---
 
-### 4. `apps/gnb/gnb_appconfig.h`
+### 4. `apps/services/worker_manager/worker_manager_appconfig.h`
 
-新增调度器应用配置结构体 `scheduler_appconfig`，并将其加入 `expert_execution_appconfig`：
+新增 `<string>` include，并在文件末尾新增 `scheduler_appconfig` 结构体，再将其加入 `expert_execution_appconfig`：
 
 ```cpp
+#pragma once
+
+#include "os_sched_affinity_manager.h"
+#include <string>   // 新增
+
+// ... 已有结构体 ...
+
 /// Scheduler configuration for expert execution.
 struct scheduler_appconfig {
   std::string dl_scheduler_trace_file;
   unsigned    dl_trace_start_slot = 1000;
 };
 
+/// Expert configuration of the application.
 struct expert_execution_appconfig {
-  // ... 已有字段 ...
-  scheduler_appconfig scheduler;  // 新增
+  cpu_affinities_appconfig affinities;
+  expert_threads_appconfig threads;
+  scheduler_appconfig      scheduler;  // 新增
 };
 ```
 
 ---
 
-### 5. `apps/gnb/gnb_appconfig_cli11_schema.cpp`
+### 5. `apps/services/worker_manager/worker_manager_cli11_schema.cpp`
 
-在 `configure_cli11_expert_execution_args()` 内新增 scheduler 子命令及选项：
+在 `configure_cli11_expert_execution_args()` 末尾新增 scheduler 子命令及选项（与 affinities/threads 并列，同属 `expert_execution` 子命令下）：
 
 ```cpp
-// 新增 scheduler 子命令
-CLI::App* scheduler_subcmd =
-    add_subcommand(app, "scheduler", "Scheduler expert configuration")->configurable();
-scheduler_subcmd->add_option(
-    "--dl_scheduler_trace_file",
-    config.scheduler.dl_scheduler_trace_file,
-    "Path to DL scheduler trace file");
-scheduler_subcmd->add_option(
-    "--dl_trace_start_slot",
-    config.scheduler.dl_trace_start_slot,
-    "Minimum slot number before trace-based scheduling takes effect")
-    ->capture_default_str();
+static void configure_cli11_expert_execution_args(CLI::App& app, expert_execution_appconfig& config)
+{
+  // ... 已有 affinities/threads 部分 ...
+
+  // Scheduler section.
+  CLI::App* scheduler_subcmd =
+      add_subcommand(app, "scheduler", "Scheduler expert configuration")->configurable();
+  scheduler_subcmd->add_option(
+      "--dl_scheduler_trace_file",
+      config.scheduler.dl_scheduler_trace_file,
+      "Path to DL scheduler trace file");
+  scheduler_subcmd
+      ->add_option(
+          "--dl_trace_start_slot",
+          config.scheduler.dl_trace_start_slot,
+          "Minimum slot number before trace-based scheduling takes effect")
+      ->capture_default_str();
+}
 ```
+
+> **注意**：此函数位于 `worker_manager_cli11_schema.cpp`，而非 `gnb_appconfig_cli11_schema.cpp`。`configure_cli11_with_worker_manager_appconfig_schema()` 内部调用它，gNB/DU/CU-UP 等所有 appconfig 均通过该函数统一注册。
 
 ---
 
 ### 6. `apps/gnb/gnb_appconfig_yaml_writer.cpp`
 
-在 scheduler 部分的 YAML 写入函数中新增：
+在 `fill_gnb_appconfig_expert_execution_section()` 末尾新增 scheduler 块写入：
 
 ```cpp
-if (!config.scheduler.dl_scheduler_trace_file.empty()) {
-  scheduler_node["dl_scheduler_trace_file"] = config.scheduler.dl_scheduler_trace_file;
+{
+  YAML::Node scheduler_node             = node["scheduler"];
+  scheduler_node["dl_trace_start_slot"] = config.scheduler.dl_trace_start_slot;
+  if (!config.scheduler.dl_scheduler_trace_file.empty()) {
+    scheduler_node["dl_scheduler_trace_file"] = config.scheduler.dl_scheduler_trace_file;
+  }
 }
-scheduler_node["dl_trace_start_slot"] = config.scheduler.dl_trace_start_slot;
 ```
 
 ---
 
-### 7. `apps/gnb/gnb_appconfig_translators.cpp`
+### 7. `apps/gnb/gnb_appconfig_translators.h`
 
-新增（或修改现有的）配置传递函数，将 gnb appconfig 中的 trace 配置传递给 DU：
+新增 `du_high_unit_config` 前向声明及函数声明：
 
 ```cpp
+#pragma once
+
+namespace srsran {
+
+struct gnb_appconfig;
+struct worker_manager_config;
+struct du_high_unit_config;  // 新增
+
+void fill_gnb_worker_manager_config(worker_manager_config& config, const gnb_appconfig& unit_cfg);
+
+/// 将 expert_execution.scheduler trace 配置传播到 DU 各 cell 的调度器配置中。
+void fill_du_scheduler_config_from_gnb_config(du_high_unit_config& du_cfg,
+                                              const gnb_appconfig& gnb_cfg);  // 新增
+
+} // namespace srsran
+```
+
+---
+
+### 8. `apps/gnb/gnb_appconfig_translators.cpp`
+
+新增 `du_high_config.h` include，并添加 `fill_du_scheduler_config_from_gnb_config` 实现：
+
+```cpp
+#include "gnb_appconfig_translators.h"
+#include "apps/services/worker_manager/worker_manager_config.h"
+#include "apps/units/flexible_o_du/o_du_high/du_high/du_high_config.h"  // 新增
+#include "gnb_appconfig.h"
+
+// ... fill_gnb_worker_manager_config 保持不变 ...
+
 void srsran::fill_du_scheduler_config_from_gnb_config(du_high_unit_config& du_cfg,
-                                                       const gnb_appconfig& gnb_cfg)
+                                                      const gnb_appconfig& gnb_cfg)
 {
+  if (gnb_cfg.expert_execution_cfg.scheduler.dl_scheduler_trace_file.empty()) {
+    return;
+  }
   for (auto& cell_cfg : du_cfg.cells_cfg) {
     cell_cfg.cell.sched_expert_cfg.dl_scheduler_trace_file =
         gnb_cfg.expert_execution_cfg.scheduler.dl_scheduler_trace_file;
@@ -296,42 +350,70 @@ void srsran::fill_du_scheduler_config_from_gnb_config(du_high_unit_config& du_cf
 }
 ```
 
-该函数声明需要加入对应的头文件，并在合适的初始化流程中调用。
+---
+
+### 9. `apps/gnb/gnb.cpp`
+
+在 `app.callback` lambda 开头（`autoderive_slicing_args` 之前）调用新函数：
+
+```cpp
+app.callback([&app, &gnb_cfg, &o_du_app_unit, &o_cu_cp_app_unit, &o_cu_up_app_unit]() {
+  autoderive_gnb_parameters_after_parsing(app, gnb_cfg);
+
+  cu_cp_unit_config& cu_cp_cfg = o_cu_cp_app_unit->get_o_cu_cp_unit_config().cucp_cfg;
+
+  // 新增：将 expert_execution.scheduler trace 配置传播到 DU cells
+  fill_du_scheduler_config_from_gnb_config(
+      o_du_app_unit->get_o_du_high_unit_config().du_high_cfg.config, gnb_cfg);
+
+  autoderive_slicing_args(o_du_app_unit->get_o_du_high_unit_config().du_high_cfg.config, cu_cp_cfg);
+  // ... 其余代码不变 ...
+});
+```
 
 ---
 
-### 8. `lib/scheduler/scheduler_impl.h`
+### 10. `lib/scheduler/scheduler_impl.h`
 
-新增头文件引入和成员变量：
+新增头文件引入和私有成员变量（无需暴露 getter）：
 
 ```cpp
 #include "srsran/scheduler/scheduler_trace.h"
+#include <memory>
 // ...
 
-class scheduler_impl : public scheduler {
-public:
-  // ...
-  dl_scheduler_trace_manager*       get_dl_trace_manager()       { return dl_trace_mgr.get(); }
-  const dl_scheduler_trace_manager* get_dl_trace_manager() const { return dl_trace_mgr.get(); }
+class scheduler_impl final : public mac_scheduler {
+  // ... 已有 public 方法 ...
 
 private:
-  // ...
-  std::unique_ptr<dl_scheduler_trace_manager> dl_trace_mgr;
+  const scheduler_expert_config expert_params;
+  srslog::basic_logger&         logger;
+
+  /// Optional trace manager for trace-based DL scheduling.
+  std::unique_ptr<dl_scheduler_trace_manager> dl_trace_mgr;  // 新增
+
+  // ... 其余成员变量 ...
 };
 ```
 
 ---
 
-### 9. `lib/scheduler/scheduler_impl.cpp`
+### 11. `lib/scheduler/scheduler_impl.cpp`
 
-在构造函数体内（`expert_params` 赋值后）初始化 trace manager：
+新增头文件引入，在构造函数体内（`expert_params` 赋值后）初始化 trace manager，并在 `handle_cell_configuration_request()` 传入指针：
 
 ```cpp
+#include "scheduler_impl.h"
+#include "ue_scheduling/ue_scheduler_impl.h"
+#include "srsran/scheduler/scheduler_trace.h"  // 新增
+// ...
+
 scheduler_impl::scheduler_impl(const scheduler_config& sched_cfg_) :
   expert_params(sched_cfg_.expert_params),
-  // ...
+  logger(srslog::fetch_basic_logger("SCHED")),
+  cfg_mng(sched_cfg_, metrics)
 {
-  // 如果配置了 trace 文件，初始化 trace manager
+  // 新增：如果配置了 trace 文件，初始化 trace manager
   if (!expert_params.dl_scheduler_trace_file.empty()) {
     dl_trace_mgr = std::make_unique<dl_scheduler_trace_manager>(
         expert_params.dl_scheduler_trace_file);
@@ -345,152 +427,146 @@ scheduler_impl::scheduler_impl(const scheduler_config& sched_cfg_) :
     }
   }
 }
-```
 
-在 `handle_cell_configuration_request()` 中，创建 `ue_scheduler_impl` 时传入 trace manager：
-
-```cpp
-// 当创建新 group 时：
+// handle_cell_configuration_request() 中，创建新 group 时传入 trace manager：
 groups.emplace(msg.cell_group_index,
-    std::make_unique<ue_scheduler_impl>(expert_params.ue, dl_trace_mgr.get()));
+    std::make_unique<ue_scheduler_impl>(expert_params.ue, dl_trace_mgr.get()));  // 修改
 ```
 
 ---
 
-### 10. `lib/scheduler/ue_scheduling/ue_scheduler_impl.h`
+### 12. `lib/scheduler/ue_scheduling/ue_scheduler_impl.h`
 
-修改构造函数声明，接受 trace manager 指针：
+新增头文件引入，修改构造函数声明，并在私有成员变量中存储 trace manager 指针（用于传递给 `intra_slice_sched`）：
 
 ```cpp
-#include "srsran/scheduler/scheduler_trace.h"
+#include "srsran/scheduler/scheduler_trace.h"  // 新增
 // ...
 
 class ue_scheduler_impl final : public ue_scheduler {
 public:
   explicit ue_scheduler_impl(const scheduler_ue_expert_config& expert_cfg_,
-                              dl_scheduler_trace_manager*       trace_mgr_ = nullptr);
+                              dl_scheduler_trace_manager*       trace_mgr_ = nullptr);  // 修改
+  // ...
+
+private:
+  // ...
+  const scheduler_ue_expert_config& expert_cfg;
+  srslog::basic_logger&             logger;
+
+  /// Optional trace manager for trace-based DL scheduling.
+  dl_scheduler_trace_manager* trace_mgr;  // 新增
+
   // ...
 };
 ```
 
 ---
 
-### 11. `lib/scheduler/ue_scheduling/ue_scheduler_impl.cpp`
+### 13. `lib/scheduler/ue_scheduling/ue_scheduler_impl.cpp`
 
-修改构造函数，将 trace manager 传递给 `ue_cell_grid_allocator`：
+修改构造函数签名，将 `trace_mgr_` 存入成员变量，并在 `cell_context` 的初始化列表中将其传递给 `intra_slice_sched`：
 
 ```cpp
+// 构造函数修改：
 ue_scheduler_impl::ue_scheduler_impl(const scheduler_ue_expert_config& expert_cfg_,
                                      dl_scheduler_trace_manager*       trace_mgr_) :
   expert_cfg(expert_cfg_),
-  ue_alloc(expert_cfg, ue_db, srslog::fetch_basic_logger("SCHED"), trace_mgr_),
-  // ...
+  logger(srslog::fetch_basic_logger("SCHED")),
+  trace_mgr(trace_mgr_),  // 新增
+  event_mng(ue_db)
 {}
+
+// cell_context 初始化列表中，intra_slice_sched 构造处新增最后一个参数：
+ue_scheduler_impl::cell_context::cell_context(...) :
+  // ...
+  intra_slice_sched(parent.expert_cfg,
+                    parent.ue_db,
+                    *params.pdcch_sched,
+                    *params.uci_alloc,
+                    *params.cell_res_alloc,
+                    *params.cell_metrics,
+                    cell_harqs,
+                    srslog::fetch_basic_logger("SCHED"),
+                    parent.trace_mgr),  // 新增
+  // ...
 ```
 
 ---
 
-### 12. `lib/scheduler/ue_scheduling/ue_cell_grid_allocator.h`
+### 14. `lib/scheduler/ue_scheduling/intra_slice_scheduler.h`（**Trace 数据链路节点**）
 
-修改构造函数声明，接受并存储 trace manager 指针；暴露 getter；在
-`dl_slice_ue_cell_grid_allocator` 上也暴露同名 getter：
+新增头文件引入，扩展构造函数签名，并添加私有成员变量：
 
 ```cpp
-#include "srsran/scheduler/scheduler_trace.h"
+#include "srsran/scheduler/scheduler_trace.h"  // 新增
 // ...
 
-class ue_cell_grid_allocator {
+class intra_slice_scheduler {
 public:
-  ue_cell_grid_allocator(const scheduler_ue_expert_config& expert_cfg_,
-                         ue_repository&                    ues_,
-                         srslog::basic_logger&             logger_,
-                         dl_scheduler_trace_manager*       trace_mgr_ = nullptr);
+  intra_slice_scheduler(const scheduler_ue_expert_config& expert_cfg_,
+                        ue_repository&                    ues,
+                        pdcch_resource_allocator&         pdcch_alloc,
+                        uci_allocator&                    uci_alloc,
+                        cell_resource_allocator&          cell_alloc,
+                        cell_metrics_handler&             cell_metrics_,
+                        cell_harq_manager&                cell_harqs_,
+                        srslog::basic_logger&             logger_,
+                        dl_scheduler_trace_manager*       trace_mgr_ = nullptr);  // 新增参数
   // ...
-  dl_scheduler_trace_manager* get_trace_manager() const { return trace_mgr; }
 
 private:
-  // ...
-  dl_scheduler_trace_manager* trace_mgr;
-};
-
-// dl_slice_ue_cell_grid_allocator 也需暴露 getter（转发到底层分配器）：
-class dl_slice_ue_cell_grid_allocator : public ue_pdsch_allocator {
-public:
-  // ...
-  dl_scheduler_trace_manager* get_trace_manager() const
-  {
-    return alloc.get_trace_manager();
-  }
-private:
-  ue_cell_grid_allocator& alloc;
+  // ... 已有成员 ...
+  dl_scheduler_trace_manager* trace_mgr;  // 新增
   // ...
 };
 ```
 
 ---
 
-### 13. `lib/scheduler/ue_scheduling/ue_cell_grid_allocator.cpp`
+### 15. `lib/scheduler/ue_scheduling/intra_slice_scheduler.cpp`（**核心 Trace 应用点**）
 
-修改构造函数，存储 `trace_mgr_`：
+构造函数签名与初始化列表中接收并存储 `trace_mgr_`：
 
 ```cpp
-ue_cell_grid_allocator::ue_cell_grid_allocator(
+intra_slice_scheduler::intra_slice_scheduler(
     const scheduler_ue_expert_config& expert_cfg_,
-    ue_repository&                    ues_,
+    // ...
     srslog::basic_logger&             logger_,
-    dl_scheduler_trace_manager*       trace_mgr_) :
-  expert_cfg(expert_cfg_), ues(ues_), logger(logger_), trace_mgr(trace_mgr_)
+    dl_scheduler_trace_manager*       trace_mgr_) :  // 新增参数
+  expert_cfg(expert_cfg_),
+  // ...
+  logger(logger_),
+  trace_mgr(trace_mgr_),  // 新增
+  expected_pdschs_per_slot(...),
+  ue_alloc(...)
 {}
 ```
 
-> **注意**：`ue_cell_grid_allocator.cpp` 中有一段注释掉的 TBS 限制代码（约第 370 行），是另一条失效的代码路径，**不需要启用**。真正生效的路径在下一步的 `scheduler_time_pf.cpp`。
-
----
-
-### 14. `lib/scheduler/policy/scheduler_time_pf.cpp`（**核心 Trace 应用点**）
-
-需要引入头文件：
+在 `schedule_dl_newtx_candidates()` 的 Stage 1 循环中，**在调用 `ue_alloc.allocate_dl_grant()` 前**用 trace 覆盖 `pending_bytes`：
 
 ```cpp
-#include "srsran/scheduler/scheduler_trace.h"
-// 确保 dl_slice_ue_cell_grid_allocator 的定义可见
-#include "../ue_scheduling/ue_cell_grid_allocator.h"
-```
+// 原来：
+auto result = ue_alloc.allocate_dl_grant(
+    ue_newtx_dl_grant_request{*ue_candidate.ue, pdsch_slot, ue_candidate.pending_bytes});
 
-在 `try_dl_alloc()` 函数中，当分配 new TX grant 时，**在设置 `grant.recommended_nof_bytes` 之后、调用 `pdsch_alloc.allocate_dl_grant()` 之前**，插入如下逻辑：
-
-```cpp
-if (ctxt.has_empty_dl_harq) {
-  grant.h_id                  = INVALID_HARQ_ID;
-  grant.recommended_nof_bytes = ues[ctxt.ue_index].pending_dl_newtx_bytes();
-
-  // *** 新增：用 trace 覆盖 recommended_nof_bytes ***
-  auto* slice_alloc = dynamic_cast<dl_slice_ue_cell_grid_allocator*>(&pdsch_alloc);
-  if (slice_alloc != nullptr) {
-    auto* trace_mgr = slice_alloc->get_trace_manager();
-    if (trace_mgr != nullptr && trace_mgr->is_enabled()) {
-      slot_point current_slot = res_grid.get_pdcch_slot(ctxt.cell_index);
-      std::optional<dl_scheduler_trace_sample> trace_sample =
-          trace_mgr->get_trace_sample(current_slot);
-      if (trace_sample.has_value()) {
-        grant.recommended_nof_bytes = trace_sample->tbs;
-      }
-    }
+// 替换为：
+unsigned effective_pending_bytes = ue_candidate.pending_bytes;
+if (trace_mgr != nullptr && trace_mgr->is_enabled()) {
+  auto trace_sample = trace_mgr->get_trace_sample(pdcch_slot);
+  if (trace_sample.has_value()) {
+    effective_pending_bytes = trace_sample->tbs;
   }
-  // *** 新增结束 ***
-
-  grant.max_nof_rbs = max_rbs;
-  alloc_result      = pdsch_alloc.allocate_dl_grant(grant);
-  if (alloc_result.status == alloc_status::success) {
-    ctxt.has_empty_dl_harq = false;
-  }
-  return alloc_result;
 }
+auto result = ue_alloc.allocate_dl_grant(
+    ue_newtx_dl_grant_request{*ue_candidate.ue, pdsch_slot, effective_pending_bytes});
 ```
+
+> **注意**：trace 读取使用 `pdcch_slot`（已在 `slot_indication()` 中更新），不需要 `dynamic_cast`，实现更简洁直接。
 
 ---
 
-### 15. `lib/scheduler/CMakeLists.txt`
+### 16. `lib/scheduler/CMakeLists.txt`
 
 在 `add_library(srsran_sched ...)` 或等效目标的源文件列表中新增：
 
@@ -557,26 +633,36 @@ expert_execution:
 ## 五、工作原理
 
 ```
-调度流程（scheduler_time_pf.cpp → try_dl_alloc）：
+调度流程（intra_slice_scheduler.cpp → schedule_dl_newtx_candidates）：
 
-  1. 计算 recommended_nof_bytes = pending_dl_newtx_bytes()
+  1. 计算 pending_bytes = ue_candidate.pending_bytes（来自 RLC 缓冲区）
   2. 若 trace_mgr 已启用且当前 slot >= start_slot_：
-       从 trace 获取 tbs → 覆盖 recommended_nof_bytes
-  3. 将 recommended_nof_bytes 传入 allocate_dl_grant()
-  4. allocate_dl_grant() 调用 required_dl_prbs() 及 compute_dl_mcs_tbs()，
-     根据 recommended_nof_bytes 计算出 MCS 和实际 TBS，分配 RB
+       从 trace 获取 tbs → 覆盖 effective_pending_bytes
+  3. 将 effective_pending_bytes 传入 ue_alloc.allocate_dl_grant()
+  4. allocate_dl_grant() 调用 compute_newtx_required_mcs_and_prbs()，
+     根据 effective_pending_bytes 计算出 MCS 和实际 TBS，分配 RB
   5. Trace 索引根据时隙经过数自动推进，支持循环播放
 ```
 
-### 数据传递链
+### 数据配置链
+
+```
+YAML: expert_execution.scheduler.dl_scheduler_trace_file
+    → worker_manager_appconfig.h: expert_execution_appconfig::scheduler
+        → gnb_appconfig_translators.cpp: fill_du_scheduler_config_from_gnb_config()
+            → du_high_unit_scheduler_expert_config::dl_scheduler_trace_file
+                → du_high_config_translators.cpp: generate_scheduler_expert_config()
+                    → scheduler_expert_config::dl_scheduler_trace_file
+```
+
+### 运行时数据传递链
 
 ```
 scheduler_expert_config.dl_scheduler_trace_file
-    → scheduler_impl（构造时创建 dl_scheduler_trace_manager）
-        → ue_scheduler_impl（构造参数传入）
-            → ue_cell_grid_allocator（构造参数传入，存储为成员 trace_mgr）
-                → dl_slice_ue_cell_grid_allocator::get_trace_manager()
-                    → scheduler_time_pf::try_dl_alloc()（通过 dynamic_cast 获取并使用）
+    → scheduler_impl（构造时创建 dl_scheduler_trace_manager，存为 dl_trace_mgr）
+        → ue_scheduler_impl（构造参数传入，存为成员 trace_mgr）
+            → intra_slice_scheduler（构造参数传入，存为成员 trace_mgr）
+                → schedule_dl_newtx_candidates()（直接使用 trace_mgr 覆盖 pending_bytes）
 ```
 
 ---
@@ -587,10 +673,12 @@ scheduler_expert_config.dl_scheduler_trace_file
 
 2. **时间驱动索引推进**：`get_trace_sample()` 使用 `slots_elapsed`（经过时隙数）推进索引，而非每次调用 +1，确保多 UE 场景下 trace 播放速度与真实时间对齐。
 
-3. **`dynamic_cast` 的必要性**：调度策略（`scheduler_time_pf`）通过 `ue_pdsch_allocator` 抽象接口访问分配器，需要 `dynamic_cast` 到 `dl_slice_ue_cell_grid_allocator` 才能取回 trace manager。
+3. **Trace 注入点在 `intra_slice_scheduler.cpp`**：trace 覆盖发生在 `schedule_dl_newtx_candidates()` 的调用处，直接替换传入 `allocate_dl_grant()` 的 `pending_bytes` 参数，无需 `dynamic_cast`。
 
-4. **注释掉的 TBS 限制代码**：`ue_cell_grid_allocator.cpp` 约第 370 行有另一条 trace 代码路径（注释状态），**不应启用**，真正生效的入口仅为 `scheduler_time_pf.cpp`。
+4. **`scheduler_appconfig` 的位置**：该结构体位于 `worker_manager_appconfig.h`（而不是 `gnb_appconfig.h`），CLI11 注册在 `worker_manager_cli11_schema.cpp` 的 `configure_cli11_expert_execution_args()` 中，对所有 app（gnb/du/cu 等）全局生效。
 
-5. **CMakeLists.txt**：务必将 `scheduler_trace.cpp` 加入编译目标，否则会有链接错误。
+5. **配置传递需要两步**：YAML `expert_execution.scheduler` → `gnb_appconfig_translators.cpp:fill_du_scheduler_config_from_gnb_config()` 写入 `du_high_unit_scheduler_expert_config` → `du_high_config_translators.cpp:generate_scheduler_expert_config()` 再写入最终的 `scheduler_expert_config`。`gnb.cpp` 的 callback 中需显式调用 `fill_du_scheduler_config_from_gnb_config()`。
 
-6. **Trace 循环播放**：`current_index_` 对 `trace_samples_.size()` 取模，trace 自然循环，支持任意长时间仿真。
+6. **CMakeLists.txt**：务必将 `scheduler_trace.cpp` 加入编译目标，否则会有链接错误。
+
+7. **Trace 循环播放**：`current_index_` 对 `trace_samples_.size()` 取模，trace 自然循环，支持任意长时间仿真。

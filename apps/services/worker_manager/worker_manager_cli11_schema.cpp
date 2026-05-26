@@ -78,6 +78,20 @@ static void configure_cli11_expert_execution_args(CLI::App& app, expert_executio
   CLI::App* main_threads_subcmd =
       add_subcommand(*threads_subcmd, "main_pool", "Main thread pool configuration")->configurable();
   configure_cli11_main_pool_threads_args(*main_threads_subcmd, config.threads.main_pool);
+
+  // Scheduler section.
+  CLI::App* scheduler_subcmd =
+      add_subcommand(app, "scheduler", "Scheduler expert configuration")->configurable();
+  scheduler_subcmd->add_option(
+      "--dl_scheduler_trace_file",
+      config.scheduler.dl_scheduler_trace_file,
+      "Path to DL scheduler trace file");
+  scheduler_subcmd
+      ->add_option(
+          "--dl_trace_start_slot",
+          config.scheduler.dl_trace_start_slot,
+          "Minimum slot number before trace-based scheduling takes effect")
+      ->capture_default_str();
 }
 
 void srsran::configure_cli11_with_worker_manager_appconfig_schema(CLI::App& app, expert_execution_appconfig& config)
