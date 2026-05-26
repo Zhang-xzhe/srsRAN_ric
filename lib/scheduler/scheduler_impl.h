@@ -28,6 +28,8 @@
 #include "ue_scheduling/ue_scheduler.h"
 #include "srsran/scheduler/config/scheduler_expert_config.h"
 #include "srsran/scheduler/mac_scheduler.h"
+#include "srsran/scheduler/scheduler_trace.h"
+#include <memory>
 
 namespace srsran {
 
@@ -83,6 +85,9 @@ private:
   const scheduler_expert_config expert_params;
 
   srslog::basic_logger& logger;
+
+  /// Optional trace manager for trace-based DL scheduling.
+  std::unique_ptr<dl_scheduler_trace_manager> dl_trace_mgr;
 
   // Slot metrics sink.
   scheduler_metrics_handler metrics;

@@ -35,6 +35,7 @@
 #include "srsran/ran/sib/sib_configuration.h"
 #include "srsran/ran/slot_pdu_capacity_constants.h"
 #include <chrono>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -249,6 +250,10 @@ struct scheduler_expert_config {
   scheduler_ue_expert_config     ue;
   bool                           log_broadcast_messages       = false;
   bool                           log_high_latency_diagnostics = false;
+  /// Path to DL scheduler trace file (optional). If empty, trace-based scheduling is disabled.
+  std::string dl_scheduler_trace_file;
+  /// Minimum slot number before trace-based scheduling takes effect (default: 1000).
+  unsigned dl_trace_start_slot = 1000;
 };
 
 } // namespace srsran

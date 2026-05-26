@@ -674,6 +674,18 @@ static void configure_cli11_scheduler_expert_args(CLI::App& app, du_high_unit_sc
   CLI::App* ta_sched_cfg_subcmd =
       add_subcommand(app, "ta_sched_cfg", "Timing Advance MAC CE scheduling expert configuration")->configurable();
   configure_cli11_ta_scheduler_expert_args(*ta_sched_cfg_subcmd, expert_params.ta_sched_cfg);
+  add_option(app,
+             "--dl_scheduler_trace_file",
+             expert_params.dl_scheduler_trace_file,
+             "Path to DL scheduler trace file. If provided, the scheduler replaces the recommended TBS per slot with "
+             "values from this CSV file.")
+      ->capture_default_str();
+  add_option(app,
+             "--dl_trace_start_slot",
+             expert_params.dl_trace_start_slot,
+             "Minimum slot number before trace-based DL scheduling takes effect. Slots before this value are scheduled "
+             "normally to allow UE attachment to complete.")
+      ->capture_default_str();
 }
 
 static void configure_cli11_drx_args(CLI::App& app, du_high_unit_drx_config& drx_params)

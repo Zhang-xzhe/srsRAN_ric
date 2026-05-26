@@ -43,7 +43,8 @@ namespace srsran {
 class ue_scheduler_impl final : public ue_scheduler
 {
 public:
-  explicit ue_scheduler_impl(const scheduler_ue_expert_config& expert_cfg_);
+  explicit ue_scheduler_impl(const scheduler_ue_expert_config& expert_cfg_,
+                             dl_scheduler_trace_manager*       trace_mgr_ = nullptr);
 
 private:
   ue_cell_scheduler* do_add_cell(const ue_cell_scheduler_creation_request& params) override;
@@ -116,6 +117,9 @@ private:
 
   const scheduler_ue_expert_config& expert_cfg;
   srslog::basic_logger&             logger;
+
+  /// Optional trace manager for trace-based DL scheduling.
+  dl_scheduler_trace_manager* trace_mgr;
 
   // List of cells of the UE scheduler.
   slotted_array<cell_context, MAX_NOF_DU_CELLS> cells;

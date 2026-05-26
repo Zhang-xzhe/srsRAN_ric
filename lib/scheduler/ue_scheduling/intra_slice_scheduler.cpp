@@ -137,13 +137,15 @@ intra_slice_scheduler::intra_slice_scheduler(const scheduler_ue_expert_config& e
                                              cell_resource_allocator&          cell_alloc_,
                                              cell_metrics_handler&             cell_metrics_,
                                              cell_harq_manager&                cell_harqs_,
-                                             srslog::basic_logger&             logger_) :
+                                             srslog::basic_logger&             logger_,
+                                             dl_scheduler_trace_manager*       trace_mgr_) :
   expert_cfg(expert_cfg_),
   cell_alloc(cell_alloc_),
   cell_metrics(cell_metrics_),
   cell_harqs(cell_harqs_),
   uci_alloc(uci_alloc_),
   logger(logger_),
+  trace_mgr(trace_mgr_),
   expected_pdschs_per_slot(compute_expected_pdschs_per_slot(cell_alloc.cfg)),
   ue_alloc(expert_cfg, ues, pdcch_alloc, uci_alloc, cell_alloc_, logger_)
 {
@@ -472,9 +474,16 @@ unsigned intra_slice_scheduler::schedule_dl_newtx_candidates(dl_ran_slice_candid
       }
     }
 
-    // Create DL grant builder.
+    // Create DL grant builder. Optionally override pending_bytes with trace-based TBS.
+    unsigned effective_pending_bytes = ue_candidate.pending_bytes;
+    if (trace_mgr != nullptr && trace_mgr->is_enabled()) {
+      auto trace_sample = trace_mgr->get_trace_sample(pdcch_slot);
+      if (trace_sample.has_value()) {
+        effective_pending_bytes = trace_sample->tbs;
+      }
+    }
     auto result =
-        ue_alloc.allocate_dl_grant(ue_newtx_dl_grant_request{*ue_candidate.ue, pdsch_slot, ue_candidate.pending_bytes});
+        ue_alloc.allocate_dl_grant(ue_newtx_dl_grant_request{*ue_candidate.ue, pdsch_slot, effective_pending_bytes});
 
     if (result.has_value()) {
       // Allocation was successful. Move grant builder to list of pending newTx grants.

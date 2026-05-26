@@ -25,8 +25,9 @@
 
 using namespace srsran;
 
-ue_scheduler_impl::ue_scheduler_impl(const scheduler_ue_expert_config& expert_cfg_) :
-  expert_cfg(expert_cfg_), logger(srslog::fetch_basic_logger("SCHED")), event_mng(ue_db)
+ue_scheduler_impl::ue_scheduler_impl(const scheduler_ue_expert_config& expert_cfg_,
+                                     dl_scheduler_trace_manager*       trace_mgr_) :
+  expert_cfg(expert_cfg_), logger(srslog::fetch_basic_logger("SCHED")), trace_mgr(trace_mgr_), event_mng(ue_db)
 {
 }
 
@@ -276,7 +277,8 @@ ue_scheduler_impl::cell_context::cell_context(ue_scheduler_impl&                
                     *params.cell_res_alloc,
                     *params.cell_metrics,
                     cell_harqs,
-                    srslog::fetch_basic_logger("SCHED")),
+                    srslog::fetch_basic_logger("SCHED"),
+                    parent.trace_mgr),
   srs_sched(params.cell_res_alloc->cfg, parent.ue_db)
 {
 }

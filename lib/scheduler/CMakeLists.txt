@@ -43,6 +43,7 @@ set(SOURCES
         cell_scheduler.cpp
         scheduler_factory.cpp
         scheduler_impl.cpp
+        scheduler_trace.cpp
         support/csi_rs_helper.cpp
         support/pusch/pusch_td_resource_indices.cpp)
 

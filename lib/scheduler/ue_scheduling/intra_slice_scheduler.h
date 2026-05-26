@@ -25,6 +25,7 @@
 #include "../policy/scheduler_policy.h"
 #include "../slicing/ran_slice_candidate.h"
 #include "ue_cell_grid_allocator.h"
+#include "srsran/scheduler/scheduler_trace.h"
 
 namespace srsran {
 
@@ -43,7 +44,8 @@ public:
                         cell_resource_allocator&          cell_alloc,
                         cell_metrics_handler&             cell_metrics_,
                         cell_harq_manager&                cell_harqs_,
-                        srslog::basic_logger&             logger_);
+                        srslog::basic_logger&             logger_,
+                        dl_scheduler_trace_manager*       trace_mgr_ = nullptr);
 
   /// Reset context in preparation for new slot.
   void slot_indication(slot_point sl_tx);
@@ -127,6 +129,9 @@ private:
   cell_harq_manager&                cell_harqs;
   uci_allocator&                    uci_alloc;
   srslog::basic_logger&             logger;
+
+  /// Optional trace manager for trace-based DL scheduling.
+  dl_scheduler_trace_manager* trace_mgr;
 
   // Derived parameters.
   const unsigned expected_pdschs_per_slot;

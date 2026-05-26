@@ -1212,6 +1212,10 @@ static scheduler_expert_config generate_scheduler_expert_config(const du_high_un
   out_cfg.log_broadcast_messages       = config.loggers.broadcast_enabled;
   out_cfg.log_high_latency_diagnostics = config.loggers.high_latency_diagnostics_enabled;
 
+  // Trace-based scheduling.
+  out_cfg.dl_scheduler_trace_file = app_sched_expert_cfg.dl_scheduler_trace_file;
+  out_cfg.dl_trace_start_slot     = app_sched_expert_cfg.dl_trace_start_slot;
+
   const error_type<std::string> error = is_scheduler_expert_config_valid(out_cfg);
   if (!error) {
     report_error("Invalid scheduler expert configuration detected.\n");
