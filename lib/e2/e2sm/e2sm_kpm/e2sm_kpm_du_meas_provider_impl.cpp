@@ -107,7 +107,7 @@ e2sm_kpm_du_meas_provider_impl::e2sm_kpm_du_meas_provider_impl(srs_du::f1ap_ue_i
                                 NO_LABEL, E2_NODE_LEVEL, true, &e2sm_kpm_du_meas_provider_impl::get_prach_cell_count});
 
   supported_metrics.emplace(
-      "DRB.RlcSduQueueDl",
+      "DRB.RlcSduVolumeDl",
       e2sm_kpm_supported_metric_t{
           NO_LABEL, ALL_LEVELS, true, &e2sm_kpm_du_meas_provider_impl::get_drb_rlc_sdu_queue_dl});
 

@@ -48,8 +48,6 @@ struct dl_scheduler_trace_sample {
 class dl_scheduler_trace_manager
 {
 public:
-  mutable bool already_access = false;
-
   explicit dl_scheduler_trace_manager(const std::string& trace_file);
 
   /// 获取指定时隙的 trace 样本（顺序循环访问，基于时间推进索引）
@@ -70,10 +68,11 @@ private:
   std::vector<dl_scheduler_trace_sample> trace_samples_;
   std::unordered_map<unsigned, size_t>   slot_to_index_;
 
-  bool                              enabled_       = true;
-  mutable size_t                    current_index_ = 0;
+  bool                              enabled_        = true;
+  mutable bool                      trace_active_   = false;
+  mutable size_t                    current_index_  = 0;
   mutable std::optional<slot_point> last_access_slot_;
-  unsigned                          start_slot_ = 1;
+  unsigned                          start_slot_     = 1;
 };
 
 } // namespace srsran

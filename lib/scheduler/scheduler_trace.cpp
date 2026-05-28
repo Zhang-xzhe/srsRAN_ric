@@ -123,15 +123,22 @@ dl_scheduler_trace_manager::get_trace_sample(slot_point slot) const
     return std::nullopt;
   }
 
-  // 达到 start_slot_ 之前不应用 trace（保护 UE 接入）
-  if (slot.to_uint() < start_slot_) {
-    return std::nullopt;
+  // 达到 start_slot_ 之前不应用 trace（保护 UE 接入）。
+  // 使用 trace_active_ 标志：一旦激活就不再因 SFN 回绕而重新禁用。
+  if (!trace_active_) {
+    if (slot.to_uint() < start_slot_) {
+      return std::nullopt;
+    }
+    trace_active_ = true;
   }
 
-  // 根据经过的时隙数推进 current_index_（时间驱动）
+  // 根据经过的时隙数推进 current_index_（时间驱动）。
+  // 使用 slot_point::operator- 而非 to_uint() 相减，以正确处理 SFN 回绕。
   if (last_access_slot_.has_value()) {
-    unsigned slots_elapsed = slot.to_uint() - last_access_slot_->to_uint();
-    current_index_         = (current_index_ + slots_elapsed) % trace_samples_.size();
+    int slots_elapsed = slot - *last_access_slot_;
+    if (slots_elapsed > 0) {
+      current_index_ = (current_index_ + static_cast<size_t>(slots_elapsed)) % trace_samples_.size();
+    }
   }
   last_access_slot_ = slot;
 
