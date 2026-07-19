@@ -259,10 +259,11 @@ void srsran::fill_sdr_worker_manager_config(worker_manager_config& config, const
   auto& sdr_cfg = config.ru_sdr_cfg.emplace();
 
   sdr_cfg.nof_cells = ru_cfg.expert_execution_cfg.cell_affinities.size();
-  sdr_cfg.profile   = (ru_cfg.device_driver != "zmq")
-                          ? static_cast<worker_manager_config::ru_sdr_config::lower_phy_thread_profile>(
-                              ru_cfg.expert_execution_cfg.threads.execution_profile)
-                          : worker_manager_config::ru_sdr_config::lower_phy_thread_profile::sequential;
+  // Use the configured lower PHY execution profile for all radio drivers, including ZMQ. The sequential profile
+  // forces uplink reception and downlink transmission onto the same executor, which creates a feedback loop with
+  // remote ZMQ peers and prevents the gNB from maintaining a strict 1 ms slot period.
+  sdr_cfg.profile = static_cast<worker_manager_config::ru_sdr_config::lower_phy_thread_profile>(
+      ru_cfg.expert_execution_cfg.threads.execution_profile);
 
   srsran_assert(config.config_affinities.size() == ru_cfg.expert_execution_cfg.cell_affinities.size(),
                 "Invalid number of cell affinities");

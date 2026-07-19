@@ -37,7 +37,7 @@ std::mutex& get_timing_log_mutex()
 FILE* get_timing_log_file()
 {
   static FILE* f = []() {
-    FILE* fp = std::fopen("/tmp/gnb_zmq_timing.csv", "w");
+    FILE* fp = std::fopen("/home/qijia/gnb_zmq_timing.csv", "w");
     if (fp != nullptr) {
       setlinebuf(fp);
       std::fprintf(fp, "time_us,samples_since_epoch,event\n");
@@ -113,7 +113,7 @@ radio_session_zmq_impl::radio_session_zmq_impl(const radio_configuration::radio&
 
   // Store sampling rate and time reference.
   srate_hz           = config.sampling_rate_Hz;
-  session_start_time = std::chrono::steady_clock::now();
+  session_start_time = std::chrono::system_clock::now();
 
   // Debug log level is only available if verbose keyword is in the device arguments.
   bool allow_log_level_debug = (config.args.find("verbose") != std::string::npos);
@@ -223,7 +223,7 @@ void radio_session_zmq_impl::start(baseband_gateway_timestamp start_time)
 
 baseband_gateway_timestamp radio_session_zmq_impl::read_current_time()
 {
-  auto now = std::chrono::steady_clock::now();
+  auto now = std::chrono::system_clock::now();
   auto us  = std::chrono::duration_cast<std::chrono::microseconds>(now - session_start_time).count();
   baseband_gateway_timestamp ts = static_cast<baseband_gateway_timestamp>(us * srate_hz / 1e6);
 

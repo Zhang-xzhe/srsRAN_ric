@@ -38,7 +38,7 @@ std::mutex& get_zmq_event_log_mutex()
 FILE* get_zmq_event_log_file()
 {
   static FILE* f = []() {
-    FILE* fp = std::fopen("/tmp/gnb_zmq_timing.csv", "a");
+    FILE* fp = std::fopen("/home/qijia/gnb_zmq_timing.csv", "a");
     if (fp != nullptr) {
       setlinebuf(fp);
     }

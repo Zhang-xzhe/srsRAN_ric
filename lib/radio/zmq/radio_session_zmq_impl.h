@@ -50,7 +50,7 @@ private:
   /// Stores transmit streams.
   std::vector<std::unique_ptr<radio_zmq_baseband_gateway>> bb_gateways;
   /// Time reference for the radio session.
-  std::chrono::steady_clock::time_point session_start_time;
+  std::chrono::system_clock::time_point session_start_time;
   /// Sampling rate in Hz.
   double srate_hz = 0.0;
   /// Indicates the session has been created successfully.

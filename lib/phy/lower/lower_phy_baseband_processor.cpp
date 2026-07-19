@@ -40,7 +40,7 @@ std::mutex& get_dl_timing_log_mutex()
 FILE* get_dl_timing_log_file()
 {
   static FILE* f = []() {
-    FILE* fp = std::fopen("/tmp/gnb_lower_phy_timing.csv", "w");
+    FILE* fp = std::fopen("/home/qijia/gnb_lower_phy_timing.csv", "w");
     if (fp != nullptr) {
       setlinebuf(fp);
       std::fprintf(fp, "time_us,timestamp,dt_rx_wait_us,dt_process_us,dt_transmit_us,dt_total_us,last_rx_timestamp\n");
@@ -53,7 +53,7 @@ FILE* get_dl_timing_log_file()
 long now_us()
 {
   return std::chrono::duration_cast<std::chrono::microseconds>(
-             std::chrono::high_resolution_clock::now().time_since_epoch())
+             std::chrono::system_clock::now().time_since_epoch())
       .count();
 }
 } // namespace
@@ -132,8 +132,9 @@ void lower_phy_baseband_processor::dl_process(baseband_gateway_timestamp timesta
   long t_entry = now_us();
 
   // Throttling mechanism to keep a maximum latency of one millisecond in the transmit buffer based on the latest
-  // received timestamp.
-  {
+  // received timestamp. When system-time throttling is enabled, the DL processing is paced by the wall-clock instead
+  // of the reception timestamp, so this RX-driven wait is skipped to avoid coupling the DL rate to the UL arrival.
+  if (system_time_throttling_ratio == 0.0) {
     // Calculate maximum waiting time to avoid deadlock.
     std::chrono::microseconds timeout_duration = 2 * slot_duration;
     // Maximum time point to wait for.
