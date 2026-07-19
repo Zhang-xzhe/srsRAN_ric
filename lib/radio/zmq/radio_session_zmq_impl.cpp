@@ -84,6 +84,44 @@ int parse_socket_type(const std::string& args, const char* key, int default_type
 
   return default_type;
 }
+
+/// Parses a socket type from a device argument string (e.g., "tx_type=push").
+int parse_socket_type(const std::string& args, const char* key, int default_type)
+{
+  std::string prefix = std::string(key) + "=";
+  size_t      pos    = args.find(prefix);
+  if (pos == std::string::npos) {
+    return default_type;
+  }
+
+  size_t value_start = pos + prefix.length();
+  size_t value_end   = args.find(',', value_start);
+  if (value_end == std::string::npos) {
+    value_end = args.length();
+  }
+
+  std::string value = args.substr(value_start, value_end - value_start);
+  if (value == "push") {
+    return ZMQ_PUSH;
+  }
+  if (value == "pull") {
+    return ZMQ_PULL;
+  }
+  if (value == "rep") {
+    return ZMQ_REP;
+  }
+  if (value == "req") {
+    return ZMQ_REQ;
+  }
+  if (value == "pub") {
+    return ZMQ_PUB;
+  }
+  if (value == "sub") {
+    return ZMQ_SUB;
+  }
+
+  return default_type;
+}
 } // namespace
 
 radio_session_zmq_impl::radio_session_zmq_impl(const radio_configuration::radio& config,
@@ -107,8 +145,8 @@ radio_session_zmq_impl::radio_session_zmq_impl(const radio_configuration::radio&
   unsigned nof_streams = config.tx_streams.size();
 
   // Parse ZMQ socket types from device arguments.
-  int tx_socket_type = parse_socket_type(config.args, "tx_type", ZMQ_REP);
-  int rx_socket_type = parse_socket_type(config.args, "rx_type", ZMQ_REQ);
+  int tx_socket_type = parse_socket_type(config.args, "tx_type", ZMQ_PUSH);
+  int rx_socket_type = parse_socket_type(config.args, "rx_type", ZMQ_PULL);
   logger.info("ZMQ socket types: tx_type={}, rx_type={}", tx_socket_type, rx_socket_type);
 
   // Store sampling rate and time reference.
