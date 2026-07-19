@@ -215,6 +215,13 @@ bool radio_zmq_tx_channel::send_response()
 
   // Check if an error occurred.
   if (n < 0) {
+    // For PUSH sockets, EAGAIN means no peer is connected yet or the send buffer is full.
+    // Retry later instead of transitioning to the error state.
+    if (socket_type == ZMQ_PUSH && zmq_errno() == EAGAIN) {
+      logger.debug("PUSH socket temporarily unavailable, retrying. {}.", zmq_strerror(zmq_errno()));
+      return false;
+    }
+
     logger.error("Exception to transmit data. {}.", zmq_strerror(zmq_errno()));
     state_fsm.on_error();
     return false;
@@ -243,9 +250,9 @@ void radio_zmq_tx_channel::run_async()
   if (socket_type == ZMQ_PUSH) {
     bool data_sent = send_response();
 
-    // If no data was available, sleep briefly to avoid busy-looping.
+    // If no data was available or send would block, sleep briefly to avoid busy-looping.
     if (!data_sent) {
-      std::this_thread::sleep_for(circ_buffer_try_push_sleep);
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
 
     // Check if the state timer expired.
