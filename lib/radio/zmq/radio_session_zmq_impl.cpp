@@ -21,8 +21,32 @@
  */
 
 #include "radio_session_zmq_impl.h"
+#include <chrono>
+#include <cstdio>
+#include <mutex>
 
 using namespace srsran;
+
+namespace {
+std::mutex& get_timing_log_mutex()
+{
+  static std::mutex m;
+  return m;
+}
+
+FILE* get_timing_log_file()
+{
+  static FILE* f = []() {
+    FILE* fp = std::fopen("/tmp/gnb_zmq_timing.csv", "w");
+    if (fp != nullptr) {
+      setlinebuf(fp);
+      std::fprintf(fp, "time_us,samples_since_epoch,event\n");
+    }
+    return fp;
+  }();
+  return f;
+}
+} // namespace
 
 radio_session_zmq_impl::radio_session_zmq_impl(const radio_configuration::radio& config,
                                                task_executor&                    async_task_executor,
@@ -43,6 +67,10 @@ radio_session_zmq_impl::radio_session_zmq_impl(const radio_configuration::radio&
   }
 
   unsigned nof_streams = config.tx_streams.size();
+
+  // Store sampling rate and time reference.
+  srate_hz           = config.sampling_rate_Hz;
+  session_start_time = std::chrono::steady_clock::now();
 
   // Debug log level is only available if verbose keyword is in the device arguments.
   bool allow_log_level_debug = (config.args.find("verbose") != std::string::npos);
@@ -152,7 +180,24 @@ void radio_session_zmq_impl::start(baseband_gateway_timestamp start_time)
 
 baseband_gateway_timestamp radio_session_zmq_impl::read_current_time()
 {
-  return 0;
+  auto now = std::chrono::steady_clock::now();
+  auto us  = std::chrono::duration_cast<std::chrono::microseconds>(now - session_start_time).count();
+  baseband_gateway_timestamp ts = static_cast<baseband_gateway_timestamp>(us * srate_hz / 1e6);
+
+  // Diagnostic logging: sample every 1000th call to avoid overhead.
+  static unsigned counter = 0;
+  if ((counter++ % 1000) == 0) {
+    std::lock_guard<std::mutex> lock(get_timing_log_mutex());
+    FILE* f = get_timing_log_file();
+    if (f != nullptr) {
+      auto wall_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+      std::fprintf(f, "%ld,%lu,read_current_time\n", wall_us, ts);
+    }
+  }
+
+  return ts;
 }
 bool radio_session_zmq_impl::set_tx_freq(unsigned stream_id, double center_freq_Hz)
 {

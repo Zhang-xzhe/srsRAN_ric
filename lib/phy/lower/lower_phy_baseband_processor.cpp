@@ -24,8 +24,39 @@
 #include "srsran/adt/interval.h"
 #include "srsran/instrumentation/traces/ru_traces.h"
 #include "srsran/ran/slot_point.h"
+#include <chrono>
+#include <cstdio>
+#include <mutex>
 
 using namespace srsran;
+
+namespace {
+std::mutex& get_dl_timing_log_mutex()
+{
+  static std::mutex m;
+  return m;
+}
+
+FILE* get_dl_timing_log_file()
+{
+  static FILE* f = []() {
+    FILE* fp = std::fopen("/tmp/gnb_lower_phy_timing.csv", "w");
+    if (fp != nullptr) {
+      setlinebuf(fp);
+      std::fprintf(fp, "time_us,timestamp,dt_rx_wait_us,dt_process_us,dt_transmit_us,dt_total_us,last_rx_timestamp\n");
+    }
+    return fp;
+  }();
+  return f;
+}
+
+long now_us()
+{
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+             std::chrono::high_resolution_clock::now().time_since_epoch())
+      .count();
+}
+} // namespace
 
 lower_phy_baseband_processor::lower_phy_baseband_processor(const lower_phy_baseband_processor::configuration& config) :
   srate(config.srate),
@@ -98,6 +129,8 @@ void lower_phy_baseband_processor::dl_process(baseband_gateway_timestamp timesta
     return;
   }
 
+  long t_entry = now_us();
+
   // Throttling mechanism to keep a maximum latency of one millisecond in the transmit buffer based on the latest
   // received timestamp.
   {
@@ -116,6 +149,8 @@ void lower_phy_baseband_processor::dl_process(baseband_gateway_timestamp timesta
     }
   }
 
+  long t_after_rx_wait = now_us();
+
   // Throttling mechanism to slow down the baseband processing.
   if ((system_time_throttling_ratio > 0.0) && (last_tx_time.has_value()) && (last_tx_buffer_size != 0)) {
     // Get current time and calculate the elapsed time since the last call.
@@ -130,7 +165,12 @@ void lower_phy_baseband_processor::dl_process(baseband_gateway_timestamp timesta
         static_cast<uint64_t>(expected_elapsed_s * 1e9 * system_time_throttling_ratio));
 
     if (elapsed < minimum_elapsed) {
-      std::this_thread::sleep_until(*last_tx_time + minimum_elapsed);
+      auto target = *last_tx_time + minimum_elapsed;
+      while (std::chrono::high_resolution_clock::now() < target) {
+#if defined(__x86_64__) || defined(__i386__)
+        __builtin_ia32_pause();
+#endif
+      }
     }
   }
   last_tx_time.emplace(std::chrono::high_resolution_clock::now());
@@ -139,6 +179,8 @@ void lower_phy_baseband_processor::dl_process(baseband_gateway_timestamp timesta
   downlink_processor_baseband::processing_result result =
       downlink_processor.process(apply_timestamp_sfn0_ref(timestamp));
   srsran_assert(result.buffer, "The buffer must be valid.");
+
+  long t_after_process = now_us();
 
   // Set transmission timestamp.
   result.metadata.ts = timestamp + tx_time_offset;
@@ -154,10 +196,30 @@ void lower_phy_baseband_processor::dl_process(baseband_gateway_timestamp timesta
   // Update last buffer size.
   last_tx_buffer_size = result.buffer->get_nof_samples();
 
+  long t_after_transmit = now_us();
+
   // Enqueue DL process task.
   report_fatal_error_if_not(
       tx_executor.defer([this, new_timestamp = timestamp + last_tx_buffer_size]() { dl_process(new_timestamp); }),
       "Failed to execute downlink processing task");
+
+  // Diagnostic logging: log every 10th dl_process to keep overhead low.
+  static unsigned counter = 0;
+  if ((counter++ % 10) == 0) {
+    std::lock_guard<std::mutex> lock(get_dl_timing_log_mutex());
+    FILE* f = get_dl_timing_log_file();
+    if (f != nullptr) {
+      std::fprintf(f,
+                   "%ld,%lu,%ld,%ld,%ld,%ld,%lu\n",
+                   t_entry,
+                   timestamp,
+                   t_after_rx_wait - t_entry,
+                   t_after_process - t_after_rx_wait,
+                   t_after_transmit - t_after_process,
+                   t_after_transmit - t_entry,
+                   last_rx_timestamp.load(std::memory_order_acquire));
+    }
+  }
 }
 
 void lower_phy_baseband_processor::ul_process()

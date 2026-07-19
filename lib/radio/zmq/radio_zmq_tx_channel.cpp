@@ -21,8 +21,38 @@
  */
 
 #include "radio_zmq_tx_channel.h"
+#include <chrono>
+#include <cstdio>
+#include <mutex>
 
 using namespace srsran;
+
+namespace {
+std::mutex& get_zmq_event_log_mutex()
+{
+  static std::mutex m;
+  return m;
+}
+
+FILE* get_zmq_event_log_file()
+{
+  static FILE* f = []() {
+    FILE* fp = std::fopen("/tmp/gnb_zmq_timing.csv", "a");
+    if (fp != nullptr) {
+      setlinebuf(fp);
+    }
+    return fp;
+  }();
+  return f;
+}
+
+long wall_time_us()
+{
+  return std::chrono::duration_cast<std::chrono::microseconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
+}
+} // namespace
 
 const std::set<int> radio_zmq_tx_channel::VALID_SOCKET_TYPES = {ZMQ_REP};
 
@@ -238,6 +268,20 @@ void radio_zmq_tx_channel::transmit_samples(span<const cf_t> data)
       event.source     = radio_notification_handler::event_source::TRANSMIT;
       event.type       = radio_notification_handler::event_type::OVERFLOW;
       notification_handler.on_radio_rt_event(event);
+
+      // Diagnostic logging: rate limit to avoid flooding.
+      static unsigned full_count = 0;
+      if ((full_count++ % 100) == 0) {
+        std::lock_guard<std::mutex> lock(get_zmq_event_log_mutex());
+        FILE* f = get_zmq_event_log_file();
+        if (f != nullptr) {
+        std::fprintf(f,
+                     "%ld,0,tx_buffer_full,samples_remaining=%zu,sample_count=%lu\n",
+                     wall_time_us(),
+                     data.size() - count,
+                     sample_count.load(std::memory_order_relaxed));
+        }
+      }
 
       // Wait some time before trying again.
       std::this_thread::sleep_for(circ_buffer_try_push_sleep);

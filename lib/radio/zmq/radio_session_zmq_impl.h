@@ -27,6 +27,7 @@
 #include "radio_zmq_tx_stream.h"
 #include "srsran/radio/radio_session.h"
 #include "srsran/support/executors/task_executor.h"
+#include <chrono>
 #include <zmq.h>
 
 namespace srsran {
@@ -39,8 +40,8 @@ private:
   static constexpr unsigned DEFAULT_TRX_TIMEOUT_MS = 10;
   /// Default linger timeout in milliseconds.
   static constexpr unsigned DEFAULT_LINGER_TIMEOUT_MS = 0;
-  /// Default stream buffer size in samples.
-  static constexpr unsigned DEFAULT_STREAM_BUFFER_SIZE = 614400;
+  /// Default stream buffer size in samples (5 slots @ 23.04 MHz).
+  static constexpr unsigned DEFAULT_STREAM_BUFFER_SIZE = 115200;
 
   /// Radio session logger.
   srslog::basic_logger& logger;
@@ -48,6 +49,10 @@ private:
   void* zmq_context;
   /// Stores transmit streams.
   std::vector<std::unique_ptr<radio_zmq_baseband_gateway>> bb_gateways;
+  /// Time reference for the radio session.
+  std::chrono::steady_clock::time_point session_start_time;
+  /// Sampling rate in Hz.
+  double srate_hz = 0.0;
   /// Indicates the session has been created successfully.
   bool successful = false;
 
