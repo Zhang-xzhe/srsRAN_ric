@@ -84,44 +84,6 @@ int parse_socket_type(const std::string& args, const char* key, int default_type
 
   return default_type;
 }
-
-/// Parses a socket type from a device argument string (e.g., "tx_type=push").
-int parse_socket_type(const std::string& args, const char* key, int default_type)
-{
-  std::string prefix = std::string(key) + "=";
-  size_t      pos    = args.find(prefix);
-  if (pos == std::string::npos) {
-    return default_type;
-  }
-
-  size_t value_start = pos + prefix.length();
-  size_t value_end   = args.find(',', value_start);
-  if (value_end == std::string::npos) {
-    value_end = args.length();
-  }
-
-  std::string value = args.substr(value_start, value_end - value_start);
-  if (value == "push") {
-    return ZMQ_PUSH;
-  }
-  if (value == "pull") {
-    return ZMQ_PULL;
-  }
-  if (value == "rep") {
-    return ZMQ_REP;
-  }
-  if (value == "req") {
-    return ZMQ_REQ;
-  }
-  if (value == "pub") {
-    return ZMQ_PUB;
-  }
-  if (value == "sub") {
-    return ZMQ_SUB;
-  }
-
-  return default_type;
-}
 } // namespace
 
 radio_session_zmq_impl::radio_session_zmq_impl(const radio_configuration::radio& config,
