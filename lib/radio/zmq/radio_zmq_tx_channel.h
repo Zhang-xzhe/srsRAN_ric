@@ -113,9 +113,11 @@ public:
 
   bool is_successful() const { return state_fsm.is_initiated(); }
 
+  /// Receives a request.
   void receive_request();
 
-  void send_response();
+  /// Sends a response. Returns true if data was sent, false otherwise.
+  bool send_response();
 
   void run_async();
 

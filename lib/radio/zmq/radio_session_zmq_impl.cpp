@@ -46,6 +46,44 @@ FILE* get_timing_log_file()
   }();
   return f;
 }
+
+/// Parses a socket type from a device argument string (e.g., "tx_type=push").
+int parse_socket_type(const std::string& args, const char* key, int default_type)
+{
+  std::string prefix = std::string(key) + "=";
+  size_t      pos    = args.find(prefix);
+  if (pos == std::string::npos) {
+    return default_type;
+  }
+
+  size_t value_start = pos + prefix.length();
+  size_t value_end   = args.find(',', value_start);
+  if (value_end == std::string::npos) {
+    value_end = args.length();
+  }
+
+  std::string value = args.substr(value_start, value_end - value_start);
+  if (value == "push") {
+    return ZMQ_PUSH;
+  }
+  if (value == "pull") {
+    return ZMQ_PULL;
+  }
+  if (value == "rep") {
+    return ZMQ_REP;
+  }
+  if (value == "req") {
+    return ZMQ_REQ;
+  }
+  if (value == "pub") {
+    return ZMQ_PUB;
+  }
+  if (value == "sub") {
+    return ZMQ_SUB;
+  }
+
+  return default_type;
+}
 } // namespace
 
 radio_session_zmq_impl::radio_session_zmq_impl(const radio_configuration::radio& config,
@@ -68,6 +106,11 @@ radio_session_zmq_impl::radio_session_zmq_impl(const radio_configuration::radio&
 
   unsigned nof_streams = config.tx_streams.size();
 
+  // Parse ZMQ socket types from device arguments.
+  int tx_socket_type = parse_socket_type(config.args, "tx_type", ZMQ_REP);
+  int rx_socket_type = parse_socket_type(config.args, "rx_type", ZMQ_REQ);
+  logger.info("ZMQ socket types: tx_type={}, rx_type={}", tx_socket_type, rx_socket_type);
+
   // Store sampling rate and time reference.
   srate_hz           = config.sampling_rate_Hz;
   session_start_time = std::chrono::steady_clock::now();
@@ -87,7 +130,7 @@ radio_session_zmq_impl::radio_session_zmq_impl(const radio_configuration::radio&
 
     // Prepare transmit stream configuration.
     radio_zmq_tx_stream::stream_description tx_stream_config;
-    tx_stream_config.socket_type = ZMQ_REP;
+    tx_stream_config.socket_type = tx_socket_type;
     for (unsigned channel_id = 0; channel_id != tx_radio_stream_config.channels.size(); ++channel_id) {
       tx_stream_config.address.push_back(tx_radio_stream_config.channels[channel_id].args);
     }
@@ -100,9 +143,9 @@ radio_session_zmq_impl::radio_session_zmq_impl(const radio_configuration::radio&
 
     const radio_configuration::stream& rx_radio_stream_config = config.rx_streams[stream_id];
 
-    // Prepare transmit stream configuration.
+    // Prepare receive stream configuration.
     radio_zmq_rx_stream::stream_description rx_stream_config;
-    rx_stream_config.socket_type = ZMQ_REQ;
+    rx_stream_config.socket_type = rx_socket_type;
     for (unsigned channel_id = 0; channel_id != rx_radio_stream_config.channels.size(); ++channel_id) {
       rx_stream_config.address.push_back(rx_radio_stream_config.channels[channel_id].args);
     }

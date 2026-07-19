@@ -55,7 +55,7 @@ long wall_time_us_rx()
 }
 } // namespace
 
-const std::set<int> radio_zmq_rx_channel::VALID_SOCKET_TYPES = {ZMQ_REQ};
+const std::set<int> radio_zmq_rx_channel::VALID_SOCKET_TYPES = {ZMQ_REQ, ZMQ_PULL};
 
 radio_zmq_rx_channel::radio_zmq_rx_channel(void*                       zmq_context,
                                            const channel_description&  config,
@@ -132,6 +132,11 @@ radio_zmq_rx_channel::~radio_zmq_rx_channel()
 
 void radio_zmq_rx_channel::send_request()
 {
+  // Pull sockets do not send requests.
+  if (socket_type == ZMQ_PULL) {
+    return;
+  }
+
   // Receive Transmit request is socket type is REPLY and no request is available.
   if (socket_type == ZMQ_REQ) {
     // Receive request.
@@ -170,7 +175,8 @@ void radio_zmq_rx_channel::receive_response()
   // Otherwise, send samples over socket.
   int sample_size = sizeof(cf_t);
   int nbytes      = buffer.size() * sample_size;
-  int n           = zmq_recv(sock, (void*)buffer.data(), nbytes, ZMQ_DONTWAIT);
+  int flags       = (socket_type == ZMQ_PULL) ? 0 : ZMQ_DONTWAIT;
+  int n           = zmq_recv(sock, (void*)buffer.data(), nbytes, flags);
 
   // Make sure the received message has not been truncated.
   if (n > nbytes) {
@@ -235,11 +241,34 @@ void radio_zmq_rx_channel::receive_response()
   }
 
   // If successful transition to wait for data.
-  state_fsm.data_received();
+  if (socket_type == ZMQ_REQ) {
+    state_fsm.data_received();
+  }
 }
 
 void radio_zmq_rx_channel::run_async()
 {
+  // For PULL sockets, continuously receive data without request/response FSM.
+  if (socket_type == ZMQ_PULL) {
+    receive_response();
+
+    // Check if the state timer expired.
+    if (state_fsm.has_wait_expired()) {
+      logger.info("Waiting for data");
+    }
+
+    // Feedback task if not stopped.
+    if (state_fsm.is_running()) {
+      if (not async_executor.defer([this]() { run_async(); })) {
+        logger.error("Unable to initiate radio zmq async task");
+      }
+    } else {
+      logger.debug("Stopped asynchronous task.");
+      state_fsm.async_task_stopped();
+    }
+    return;
+  }
+
   // Transmit request if it has no pending response, otherwise receive response.
   if (!state_fsm.has_pending_response()) {
     send_request();

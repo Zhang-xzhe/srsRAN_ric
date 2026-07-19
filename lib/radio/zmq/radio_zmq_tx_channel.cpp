@@ -24,6 +24,7 @@
 #include <chrono>
 #include <cstdio>
 #include <mutex>
+#include <thread>
 
 using namespace srsran;
 
@@ -54,7 +55,7 @@ long wall_time_us()
 }
 } // namespace
 
-const std::set<int> radio_zmq_tx_channel::VALID_SOCKET_TYPES = {ZMQ_REP};
+const std::set<int> radio_zmq_tx_channel::VALID_SOCKET_TYPES = {ZMQ_REP, ZMQ_PUSH};
 
 radio_zmq_tx_channel::radio_zmq_tx_channel(void*                       zmq_context,
                                            const channel_description&  config,
@@ -188,19 +189,24 @@ void radio_zmq_tx_channel::receive_request()
   // ...
 }
 
-void radio_zmq_tx_channel::send_response()
+bool radio_zmq_tx_channel::send_response()
 {
+  // For REP sockets, a request must be pending before sending.
+  if ((socket_type == ZMQ_REP) && !state_fsm.has_pending_request()) {
+    return false;
+  }
+
   // Try popping samples until the circular buffer is empty.
   unsigned count = circular_buffer.try_pop(buffer.begin(), buffer.end());
 
   // Check if it is still running.
   if (!state_fsm.is_running()) {
-    return;
+    return false;
   }
 
   // If no samples are available return without transitioning state.
   if (count == 0) {
-    return;
+    return false;
   }
 
   // Otherwise, send samples over socket.
@@ -211,24 +217,54 @@ void radio_zmq_tx_channel::send_response()
   if (n < 0) {
     logger.error("Exception to transmit data. {}.", zmq_strerror(zmq_errno()));
     state_fsm.on_error();
-    return;
+    return false;
   }
 
   // Check if the number of bytes is correct.
   if (n != nbytes) {
     logger.error("Failed to transmit data. Unmatched number of bytes {}!={}.", n, nbytes);
     state_fsm.on_error();
-    return;
+    return false;
   }
 
   logger.debug("Socket sent {} samples.", count);
 
-  // If successful transition to wait for data.
-  state_fsm.data_sent();
+  // For REP sockets, transition back to waiting for a request.
+  if (socket_type == ZMQ_REP) {
+    state_fsm.data_sent();
+  }
+
+  return true;
 }
 
 void radio_zmq_tx_channel::run_async()
 {
+  // For PUSH sockets, continuously send available data without request/response FSM.
+  if (socket_type == ZMQ_PUSH) {
+    bool data_sent = send_response();
+
+    // If no data was available, sleep briefly to avoid busy-looping.
+    if (!data_sent) {
+      std::this_thread::sleep_for(circ_buffer_try_push_sleep);
+    }
+
+    // Check if the state timer expired.
+    if (state_fsm.has_wait_expired()) {
+      logger.info("Waiting for data");
+    }
+
+    // Feedback task if not stopped.
+    if (state_fsm.is_running()) {
+      if (not async_executor.defer([this]() { run_async(); })) {
+        logger.error("Unable to initiate async task");
+      }
+    } else {
+      logger.debug("Stopped asynchronous task.");
+      state_fsm.async_task_stopped();
+    }
+    return;
+  }
+
   // Receive request if there is no pending request. Otherwise, send response.
   if (!state_fsm.has_pending_request()) {
     receive_request();
